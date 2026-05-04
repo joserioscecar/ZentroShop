@@ -3,8 +3,8 @@ package co.zentroshop.app.entity;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
-public class Venta implements Serializable{
-    
+public class Venta implements Serializable {
+
     private final int numero;
     private final Producto producto;
     private final int cantidad;
@@ -13,7 +13,7 @@ public class Venta implements Serializable{
     private final double impuesto;
 
     private final LocalDateTime fecha;
-    
+
     final static double IVA = 0.19;
 
     public Venta(int numero, Producto producto, int cantidad) {
@@ -21,8 +21,8 @@ public class Venta implements Serializable{
         this.producto = producto;
         this.cantidad = cantidad;
         this.subTotal = producto.getPrecio() * cantidad;
-        impuesto=subTotal*IVA;
-        total = subTotal+impuesto;
+        impuesto = subTotal * IVA;
+        total = subTotal + impuesto;
         this.fecha = LocalDateTime.now();
     }
 
@@ -33,7 +33,7 @@ public class Venta implements Serializable{
     public double getSubTotal() {
         return subTotal;
     }
-    
+
     public Producto getProducto() {
         return producto;
     }
@@ -45,22 +45,23 @@ public class Venta implements Serializable{
     public double getTotal() {
         return total;
     }
-    
+
     public LocalDateTime getFecha() {
         return fecha;
     }
-    
+
     public double getImpuesto() {
         return impuesto;
     }
 
     @Override
     public String toString() {
-        return "Venta #" + numero + " | Fecha: "+getFecha()+""+" | Producto: " + producto.getNombre() +
-               " | Cantidad: " + cantidad + " | Total: $" + String.format("%,.0f", total);
+        return "Venta #" + numero + " | Fecha: " + getFecha() + " | Producto: " + producto.getNombre()
+                + " | Precio unitario: $" + String.format("%,.0f", producto.getPrecio())
+                + " | Impuesto: $" + String.format("%,.0f", impuesto) + " | SubTotal: $"
+                + String.format("%,.0f", subTotal) + " | Cantidad: " + cantidad + " | Total: $"
+                + String.format("%,.0f", total);
 
     }
-    
-    
-    
+
 }

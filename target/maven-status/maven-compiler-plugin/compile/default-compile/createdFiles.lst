@@ -1,0 +1,9 @@
+co\zentroshop\app\excepctions\NegocioException.class
+co\zentroshop\app\repository\ObjectRepository.class
+co\zentroshop\app\enumeration\EstadoProducto.class
+co\zentroshop\app\service\ProductoService.class
+co\zentroshop\app\entity\Venta.class
+co\zentroshop\app\service\VentaService.class
+co\zentroshop\app\ui\App.class
+co\zentroshop\app\repository\ObjectRepository$FilterBuilder.class
+co\zentroshop\app\entity\Producto.class

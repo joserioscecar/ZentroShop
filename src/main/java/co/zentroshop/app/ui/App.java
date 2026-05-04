@@ -22,7 +22,7 @@ public class App {
             System.out.println("2. Eliminar Producto");
             System.out.println("3. Consultar Producto");
             System.out.println("4. Listar Productos");
-            System.out.println("5. Realizar Compra");
+            System.out.println("5. Realizar Ventas");
             System.out.println("6. Consultar Ventas");
             System.out.println("7. Agregar Stock a un Producto");
             System.out.println("0. Salir");
@@ -34,7 +34,7 @@ public class App {
                 case 2 -> eliminarProducto();
                 case 3 -> consultarProducto();
                 case 4 -> listarProductos();
-                case 5 -> realizarCompra();
+                case 5 -> realizarVenta();
                 case 6 -> consultarVentas();
                 case 7 -> agregarStock();
                 case 0 -> System.out.println("Gracias por usar el sistema.");
@@ -84,7 +84,7 @@ public class App {
         }
     }
 
-    static void realizarCompra() {
+    static void realizarVenta() {
         if (servicioProducto.listarProductos().isEmpty()) {
             System.out.println("No hay productos registrados.");
             return;
@@ -100,11 +100,11 @@ public class App {
             return;
         }
 
-        System.out.print("Cantidad a comprar: ");
+        System.out.print("Cantidad a vender del producto: ");
         int cantidad = Integer.parseInt(scanner.nextLine().trim());
 
         try {
-            if (servicioVenta.realizarVenta(productoOp.get(), cantidad)) {
+            if (servicioVenta.realizarVenta(productoOp.get().getSku(), cantidad)) {
                 System.out.println("Compra realizada con exito.");
             } else {
                 System.out.println("No se pudo realizar la compra.");

@@ -10,46 +10,42 @@ import java.util.Optional;
 
 public class ProductoService {
 
-
-    private final ObjectRepository<Producto> productoRepository ;
+    private final ObjectRepository<Producto> productoRepository;
 
     public ProductoService() {
         productoRepository = new ObjectRepository("data/producto.dat");
     }
 
     public boolean nombreDisponible(String nombre) {
-        
+
         try {
-            return productoRepository.find(p->p.getNombre().equalsIgnoreCase(nombre)).isEmpty();
-            
+            return productoRepository.find(p -> p.getNombre().equalsIgnoreCase(nombre)).isEmpty();
+
         } catch (IOException | ClassNotFoundException ex) {
-            
+
             ex.printStackTrace();
             System.getLogger(ProductoService.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
-            
+
         }
         return false;
     }
 
     public boolean registrarProducto(String nombre, double precio, int stock) {
 
-        
-        if(!nombreDisponible(nombre)) {
-            
-             System.err.println("Ya existe un producto registrado con el nombre "+nombre);
-            
-            return  false;
+        if (!nombreDisponible(nombre)) {
+
+            System.err.println("Ya existe un producto registrado con el nombre " + nombre);
+
+            return false;
         }
-        
-        
+
         try {
             Producto nuevo = new Producto(nombre, precio, stock);
-            
+
             return productoRepository.add(nuevo);
-            
-               
-        } catch (NegocioException | IOException | ClassNotFoundException  ex) {
-            
+
+        } catch (NegocioException | IOException | ClassNotFoundException ex) {
+
             ex.printStackTrace();
             System.err.println(ex.getMessage());
         }
@@ -58,24 +54,23 @@ public class ProductoService {
     }
 
     public boolean eliminarProducto(int sku) {
-        
+
         try {
-            
-            int indice = productoRepository.indexOf(p->p.getSku()==sku);
+
+            int indice = productoRepository.indexOf(p -> p.getSku() == sku);
             return productoRepository.remove(indice);
-            
+
         } catch (IOException | ClassNotFoundException ex) {
             System.getLogger(ProductoService.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
         }
-       
 
-        return false; 
+        return false;
     }
 
-    public  Optional<Producto> consultarProducto(int sku) {
-                
+    public Optional<Producto> consultarProducto(int sku) {
+
         try {
-            return productoRepository.find(p->p.getSku()==sku);
+            return productoRepository.find(p -> p.getSku() == sku);
         } catch (IOException | ClassNotFoundException ex) {
             System.getLogger(ProductoService.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
         }
@@ -84,7 +79,7 @@ public class ProductoService {
 
     public List<Producto> listarProductos() {
         try {
-            return productoRepository.filter(p->p.getEstado()==EstadoProducto.DISPONIBLE).get();
+            return productoRepository.filter(p -> p.getEstado() == EstadoProducto.DISPONIBLE).get();
         } catch (IOException | ClassNotFoundException ex) {
             System.getLogger(ProductoService.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
         }
@@ -92,19 +87,24 @@ public class ProductoService {
     }
 
     public boolean agregarStock(int id, int cantidad) throws NegocioException {
-        
+
         Optional<Producto> productoOp = consultarProducto(id);
-         
-        if(productoOp.isPresent()){
-           
+
+        if (productoOp.isPresent()) {
+
             Producto producto = productoOp.get();
             producto.agregarAlStock(cantidad);
-            
-            return  true;
+            try {
+                productoRepository.update(producto);
+            } catch (IOException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+
+            return true;
         }
 
- 
-        return  false;
+        return false;
     }
 
 }

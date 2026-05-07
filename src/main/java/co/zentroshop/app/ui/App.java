@@ -59,6 +59,9 @@ public class App {
     }
 
     static void eliminarProducto() {
+        
+        listarProductos();
+        
         System.out.print("Ingrese SKU del producto a eliminar: ");
         int sku = Integer.parseInt(scanner.nextLine().trim());
         if (servicioProducto.eliminarProducto(sku)) {

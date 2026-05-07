@@ -5,7 +5,6 @@ import co.zentroshop.app.entity.Venta;
 import co.zentroshop.app.excepctions.NegocioException;
 import co.zentroshop.app.repository.ObjectRepository;
 import java.io.IOException;
-import java.lang.foreign.Linker.Option;
 import java.util.List;
 import java.util.Optional;
 
@@ -51,7 +50,7 @@ public class VentaService {
                 int numeroUltimaVenta = getNumeroUltimaVenta() + 1;
                 Venta venta = new Venta(numeroUltimaVenta, productoEncontrado, cantidad);
 
-                return ventaRepository.add(venta);
+                return ventaRepository.save(venta);
             }
 
         } catch (IOException | ClassNotFoundException ex) {

@@ -23,7 +23,6 @@ public class ProductoService {
 
         } catch (IOException | ClassNotFoundException ex) {
 
-            ex.printStackTrace();
             System.getLogger(ProductoService.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
 
         }
@@ -42,11 +41,10 @@ public class ProductoService {
         try {
             Producto nuevo = new Producto(nombre, precio, stock);
 
-            return productoRepository.add(nuevo);
+            return productoRepository.save(nuevo);
 
         } catch (NegocioException | IOException | ClassNotFoundException ex) {
 
-            ex.printStackTrace();
             System.err.println(ex.getMessage());
         }
 
@@ -57,8 +55,8 @@ public class ProductoService {
 
         try {
 
-            int indice = productoRepository.indexOf(p -> p.getSku() == sku);
-            return productoRepository.remove(indice);
+            Producto producto = productoRepository.find(p -> p.getSku() == sku).get();
+            return productoRepository.remove(producto);
 
         } catch (IOException | ClassNotFoundException ex) {
             System.getLogger(ProductoService.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);

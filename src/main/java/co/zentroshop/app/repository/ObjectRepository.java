@@ -33,7 +33,7 @@ public class ObjectRepository<T extends Serializable> implements Serializable {
         this.collection = new ArrayList<>();
     }
 
-    public boolean add(T object) throws IOException, ClassNotFoundException {
+    public boolean save(T object) throws IOException, ClassNotFoundException {
         Objects.requireNonNull(object, "Cannot add a null object");
 
         if (collection.contains(object)) {
@@ -72,23 +72,6 @@ public class ObjectRepository<T extends Serializable> implements Serializable {
         }
     }
 
-    public T get(int index) throws IOException, ClassNotFoundException {
-        collection = getAll();
-        return collection.get(index);
-    }
-
-    public boolean remove(int index) throws IOException, ClassNotFoundException {
-        collection = getAll();
-
-        if (index < 0 || index >= collection.size()) {
-            return false;
-        }
-
-        collection.remove(index);
-        persist();
-        return true;
-    }
-
     public boolean remove(T object) throws IOException, ClassNotFoundException {
         if (object == null) {
             throw new IllegalArgumentException("Cannot remove a null object");
@@ -119,13 +102,6 @@ public class ObjectRepository<T extends Serializable> implements Serializable {
 
     public boolean update(T object) throws IOException {
         Objects.requireNonNull(object, "Object cannot be null");
-
-        /*
-         * if (collection.contains(object)) {
-         * throw new
-         * IllegalArgumentException("The object already exists in the collection.");
-         * }
-         */
 
         int index = collection.indexOf(object);
         if (index >= 0) {

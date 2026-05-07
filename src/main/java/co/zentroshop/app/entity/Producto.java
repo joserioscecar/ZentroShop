@@ -95,4 +95,20 @@ public class Producto  implements Serializable{
         Random random = new Random();
         return 100000 + random.nextInt(900000);
     }
+
+    @Override
+    public boolean equals(Object obj) {
+        
+        Producto p = (Producto) obj;
+               
+        return sku == p.sku;
+    }
+
+    @Override
+    public int hashCode() {
+        return sku;
+    }
+    
+   
+    
 }

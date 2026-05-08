@@ -1,4 +1,4 @@
-package co.zentroshop.app.ui;
+package co.zentroshop.app.ui.console;
 
 import co.zentroshop.app.entity.Producto;
 import co.zentroshop.app.entity.Venta;
@@ -44,17 +44,23 @@ public class App {
     }
 
     static void registrarProducto() {
-        System.out.print("Nombre del producto: ");
-        String nombre = scanner.nextLine();
-        System.out.print("Precio: ");
-        double precio = Double.parseDouble(scanner.nextLine().trim());
-        System.out.print("Stock: ");
-        int stock = Integer.parseInt(scanner.nextLine().trim());
-
-        if (servicioProducto.registrarProducto(nombre, precio, stock)) {
-            System.out.println("Producto registrado con exito.");
-        } else {
-            System.out.println("Datos invalidos. Precio >= 0 y stock > 0.");
+        try {
+            System.out.print("Nombre del producto: ");
+            String nombre = scanner.nextLine();
+            System.out.print("Precio: ");
+            double precio = Double.parseDouble(scanner.nextLine().trim());
+            System.out.print("Stock: ");
+            int stock = Integer.parseInt(scanner.nextLine().trim());
+            
+            Producto nuevoProducto = new Producto(nombre, precio, stock);
+            
+            if (servicioProducto.registrarProducto(nuevoProducto)) {
+                System.out.println("Producto registrado con exito.");
+            } else {
+                System.out.println("Datos invalidos. Precio >= 0 y stock > 0.");
+            }
+        } catch (NegocioException ex) {
+            System.getLogger(App.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
         }
     }
 

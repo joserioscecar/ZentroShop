@@ -5,4 +5,7 @@ D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\excep
 D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\repository\ObjectRepository.java
 D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\service\ProductoService.java
 D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\service\VentaService.java
-D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\ui\App.java
+D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\ui\console\App.java
+D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\ui\forms\MainJFrame.java
+D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\ui\forms\ProductoDialog.java
+D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\utility\StringFormat.java

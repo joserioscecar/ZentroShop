@@ -29,21 +29,20 @@ public class ProductoService {
         return false;
     }
 
-    public boolean registrarProducto(String nombre, double precio, int stock) {
+    public boolean registrarProducto(Producto producto) {
 
-        if (!nombreDisponible(nombre)) {
+        if (!nombreDisponible(producto.getNombre())) {
 
-            System.err.println("Ya existe un producto registrado con el nombre " + nombre);
+            System.err.println("Ya existe un producto registrado con el nombre " + producto.getNombre());
 
             return false;
         }
 
         try {
-            Producto nuevo = new Producto(nombre, precio, stock);
 
-            return productoRepository.save(nuevo);
+            return productoRepository.save(producto);
 
-        } catch (NegocioException | IOException | ClassNotFoundException ex) {
+        } catch (IOException | ClassNotFoundException ex) {
 
             System.err.println(ex.getMessage());
         }

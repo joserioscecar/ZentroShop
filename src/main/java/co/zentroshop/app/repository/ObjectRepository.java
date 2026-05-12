@@ -1,9 +1,5 @@
 package co.zentroshop.app.repository;
 
-import co.zentroshop.app.repository.exception.DuplicateEntityException;
-import co.zentroshop.app.repository.exception.EntityNotFoundException;
-import co.zentroshop.app.repository.exception.StorageException;
-
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -50,9 +46,9 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
             collection = (List<T>) ois.readObject();
             return new ArrayList<>(collection);
         } catch (IOException e) {
-            throw new StorageException("Failed to read from file: " + filePath, e);
+            throw new RuntimeException("Failed to read from file: " + filePath, e);
         } catch (ClassNotFoundException e) {
-            throw new StorageException("Incompatible data format in file: " + filePath, e);
+            throw new RuntimeException("Incompatible data format in file: " + filePath, e);
         }
     }
 
@@ -68,7 +64,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
                 oos.flush();
             }
         } catch (IOException e) {
-            throw new StorageException("Failed to write to file: " + filePath, e);
+            throw new RuntimeException("Failed to write to file: " + filePath, e);
         }
     }
 
@@ -82,7 +78,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
 
         boolean exists = collection.stream().anyMatch(e -> idExtractor.apply(e).equals(id));
         if (exists) {
-            throw new DuplicateEntityException(id);
+            throw new RuntimeException("Entity with ID '" + id + "' already exists");
         }
 
         boolean saved = collection.add(object);
@@ -116,7 +112,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
     }
 
     public T getById(ID id) {
-        return findById(id).orElseThrow(() -> new EntityNotFoundException(id));
+        return findById(id).orElseThrow(() -> new RuntimeException("Entity with ID '" + id + "' already exists"));
     }
 
     public boolean existsById(ID id) {
@@ -195,7 +191,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
                 return true;
             }
         }
-        throw new EntityNotFoundException(id);
+        throw new RuntimeException("Entity with ID '" + id + "' already exists");
     }
 
     // ── Eliminar ─────────────────────────────────────────────────────────────
@@ -217,9 +213,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
 
         collection = getAll();
         boolean removed = collection.removeIf(e -> idExtractor.apply(e).equals(id));
-        if (!removed) {
-            throw new EntityNotFoundException(id);
-        }
+
         persist();
                 
         return  removed;

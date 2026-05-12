@@ -2,7 +2,12 @@ D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\entit
 D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\entity\Venta.java
 D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\enumeration\EstadoProducto.java
 D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\excepctions\NegocioException.java
+D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\repository\exception\DuplicateEntityException.java
+D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\repository\exception\EntityNotFoundException.java
+D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\repository\exception\StorageException.java
 D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\repository\ObjectRepository.java
+D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\repository\ProductRepository.java
+D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\repository\VentaRepository.java
 D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\service\ProductoService.java
 D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\service\VentaService.java
 D:\Desarrollos\NetBeansProjects\ZentroShop\src\main\java\co\zentroshop\app\ui\console\App.java

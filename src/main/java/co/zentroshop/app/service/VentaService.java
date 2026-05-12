@@ -4,31 +4,28 @@ import co.zentroshop.app.entity.Producto;
 import co.zentroshop.app.entity.Venta;
 import co.zentroshop.app.excepctions.NegocioException;
 import co.zentroshop.app.repository.ObjectRepository;
+import co.zentroshop.app.repository.ProductRepository;
+import co.zentroshop.app.repository.VentaRepository;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
 public class VentaService {
 
-    private final ObjectRepository<Venta> ventaRepository;
-    private final ObjectRepository<Producto> productoRepository;
+    private final  ProductRepository productoRepository;
+    private final VentaRepository ventaRepository;
+
 
     public VentaService() {
 
-        ventaRepository = new ObjectRepository<>("data/ventas.dat");
-        productoRepository = new ObjectRepository<>("data/producto.dat");
+        ventaRepository = new VentaRepository();
+        productoRepository = new ProductRepository();
     }
 
     private int getNumeroUltimaVenta() {
 
-        try {
-
-            if (!ventaRepository.getAll().isEmpty()) {
-                return ventaRepository.getAll().getLast().getNumero();
-            }
-
-        } catch (IOException | ClassNotFoundException ex) {
-            System.getLogger(VentaService.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
+        if (!ventaRepository.getAll().isEmpty()) {
+            return ventaRepository.getAll().getLast().getNumero();
         }
         return 1000;
     }
@@ -37,36 +34,25 @@ public class VentaService {
 
         Producto productoEncontrado = null;
 
-        try {
-
-            Optional<Producto> productoOp = productoRepository.find(p -> p.getSku() == skuProducto);
-
-            if (productoOp.isPresent()) {
-
-                productoEncontrado = productoOp.get();
-                productoEncontrado.removerDelStock(cantidad);
-                productoRepository.update(productoEncontrado);
-
-                int numeroUltimaVenta = getNumeroUltimaVenta() + 1;
-                Venta venta = new Venta(numeroUltimaVenta, productoEncontrado, cantidad);
-
-                return ventaRepository.save(venta);
-            }
-
-        } catch (IOException | ClassNotFoundException ex) {
-            System.getLogger(VentaService.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
+        Optional<Producto> productoOp = productoRepository.findById(skuProducto);
+        if (productoOp.isPresent()) {
+            
+            productoEncontrado = productoOp.get();
+            productoEncontrado.removerDelStock(cantidad);
+            productoRepository.update(productoEncontrado);
+            
+            int numeroUltimaVenta = getNumeroUltimaVenta() + 1;
+            Venta venta = new Venta(numeroUltimaVenta, productoEncontrado, cantidad);
+            
+            return ventaRepository.save(venta);
         }
 
         return false;
     }
 
     public List<Venta> consultarVentas() {
-        try {
-            return ventaRepository.getAll();
-        } catch (IOException | ClassNotFoundException ex) {
-            System.getLogger(VentaService.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
-        }
-        return null;
+        return ventaRepository.getAll();
+
     }
 
 }

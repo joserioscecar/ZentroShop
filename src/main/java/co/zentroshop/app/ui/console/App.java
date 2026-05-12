@@ -14,7 +14,7 @@ public class App {
     static ProductoService servicioProducto = new ProductoService();
     static VentaService servicioVenta = new VentaService();
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws ClassNotFoundException {
         int opcion;
         do {
             System.out.println("\n--- MENU PRINCIPAL ---");
@@ -132,7 +132,7 @@ public class App {
         }
     }
 
-    static void agregarStock() {
+    static void agregarStock() throws ClassNotFoundException {
         listarProductos();
         System.out.print("Ingrese SKU del producto: ");
         int sku = Integer.parseInt(scanner.nextLine().trim());

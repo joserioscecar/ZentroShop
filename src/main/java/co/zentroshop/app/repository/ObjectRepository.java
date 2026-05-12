@@ -1,5 +1,9 @@
 package co.zentroshop.app.repository;
 
+import co.zentroshop.app.repository.exception.DuplicateEntityException;
+import co.zentroshop.app.repository.exception.EntityNotFoundException;
+import co.zentroshop.app.repository.exception.StorageException;
+
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -10,88 +14,164 @@ import java.util.function.Predicate;
 
 /**
  * Repositorio genérico que permite persistir, recuperar, buscar, actualizar y
- * eliminar
- * colecciones de objetos en archivos binarios.
+ * eliminar colecciones de objetos en archivos binarios.
  *
- * @param <T> Tipo de objetos que serán almacenados en el repositorio
+ * @param <T>  Tipo de objetos que serán almacenados en el repositorio
+ * @param <ID> Tipo del identificador único de cada objeto
  *
  * @autor José David Ríos Pacheco
- * @versión 2
+ * @versión 4
  */
-
-public class ObjectRepository<T extends Serializable> implements Serializable {
+public abstract class ObjectRepository<T extends Serializable, ID> implements Serializable {
 
     private final Path filePath;
-
+    private final Function<T, ID> idExtractor;
     private List<T> collection;
 
-    public ObjectRepository(String pathName) {
+    protected ObjectRepository(String pathName, Function<T, ID> idExtractor) {
         if (pathName == null || pathName.trim().isEmpty()) {
             throw new IllegalArgumentException("File path cannot be null or empty");
         }
+        Objects.requireNonNull(idExtractor, "ID extractor cannot be null");
         this.filePath = Paths.get(pathName);
         this.collection = new ArrayList<>();
+        this.idExtractor = idExtractor;
     }
 
-    public boolean save(T object) throws IOException, ClassNotFoundException {
-        Objects.requireNonNull(object, "Cannot add a null object");
+    // ── Persistencia interna ─────────────────────────────────────────────────
 
-        if (collection.contains(object)) {
-            throw new IllegalArgumentException("The object already exists in the collection.");
-        }
-
-        collection = getAll();
-        boolean saved = collection.add(object);
-        persist();
-
-        return saved;
-    }
-
-    public List<T> getAll() throws IOException, ClassNotFoundException {
+    @SuppressWarnings("unchecked")
+    public List<T> getAll() {
         if (!Files.exists(filePath)) {
             return new ArrayList<>();
         }
-
         try (ObjectInputStream ois = new ObjectInputStream(
                 new BufferedInputStream(Files.newInputStream(filePath)))) {
             collection = (List<T>) ois.readObject();
             return new ArrayList<>(collection);
+        } catch (IOException e) {
+            throw new StorageException("Failed to read from file: " + filePath, e);
+        } catch (ClassNotFoundException e) {
+            throw new StorageException("Incompatible data format in file: " + filePath, e);
         }
     }
 
-    private void persist() throws IOException {
+    private void persist() {
         Path parentDir = filePath.getParent();
-        if (parentDir != null && !Files.exists(parentDir)) {
-            Files.createDirectories(parentDir);
-        }
-
-        try (ObjectOutputStream oos = new ObjectOutputStream(
-                new BufferedOutputStream(Files.newOutputStream(filePath)))) {
-            oos.writeObject(collection);
-            oos.flush();
+        try {
+            if (parentDir != null && !Files.exists(parentDir)) {
+                Files.createDirectories(parentDir);
+            }
+            try (ObjectOutputStream oos = new ObjectOutputStream(
+                    new BufferedOutputStream(Files.newOutputStream(filePath)))) {
+                oos.writeObject(collection);
+                oos.flush();
+            }
+        } catch (IOException e) {
+            throw new StorageException("Failed to write to file: " + filePath, e);
         }
     }
 
-    public boolean remove(T object) throws IOException, ClassNotFoundException {
-        if (object == null) {
-            throw new IllegalArgumentException("Cannot remove a null object");
-        }
+    // ── Guardar ──────────────────────────────────────────────────────────────
+
+    public boolean save(T object) {
+        Objects.requireNonNull(object, "Cannot add a null object");
 
         collection = getAll();
-        boolean removed = collection.remove(object);
-        if (removed) {
-            persist();
+        ID id = idExtractor.apply(object);
+
+        boolean exists = collection.stream().anyMatch(e -> idExtractor.apply(e).equals(id));
+        if (exists) {
+            throw new DuplicateEntityException(id);
         }
-        return removed;
+
+        boolean saved = collection.add(object);
+        persist();
+        return saved;
     }
 
-    public Optional<T> find(Predicate<? super T> predicate) throws IOException, ClassNotFoundException {
+    public <S extends T> List<S> saveAll(Iterable<S> entities) {
+        Objects.requireNonNull(entities, "Entities cannot be null");
+
+        List<S> saved = new ArrayList<>();
+        for (S entity : entities) {
+            save(entity);
+            saved.add(entity);
+        }
+        return saved;
+    }
+
+    // ── Buscar ───────────────────────────────────────────────────────────────
+
+    public Optional<T> findById(ID id) {
+        Objects.requireNonNull(id, "ID cannot be null");
+
+        collection = getAll();
+        for (T element : collection) {
+            if (idExtractor.apply(element).equals(id)) {
+                return Optional.of(element);
+            }
+        }
+        return Optional.empty();
+    }
+
+    public T getById(ID id) {
+        return findById(id).orElseThrow(() -> new EntityNotFoundException(id));
+    }
+
+    public boolean existsById(ID id) {
+        Objects.requireNonNull(id, "ID cannot be null");
+        return findById(id).isPresent();
+    }
+
+    public List<T> findAll() {
+        return getAll();
+    }
+
+    public List<T> findAll(Comparator<T> sort) {
+        Objects.requireNonNull(sort, "Sort comparator cannot be null");
+
+        List<T> sorted = getAll();
+        sorted.sort(sort);
+        return sorted;
+    }
+
+    public Page<T> findAll(int pageNumber, int pageSize) {
+        if (pageNumber < 0) throw new IllegalArgumentException("Page number must be >= 0");
+        if (pageSize < 1)   throw new IllegalArgumentException("Page size must be >= 1");
+
+        List<T> all   = getAll();
+        int fromIndex = pageNumber * pageSize;
+        int toIndex   = Math.min(fromIndex + pageSize, all.size());
+
+        List<T> content = fromIndex >= all.size() ? new ArrayList<>() : all.subList(fromIndex, toIndex);
+        return new Page<>(new ArrayList<>(content), pageNumber, pageSize, all.size());
+    }
+
+    public Page<T> findAll(int pageNumber, int pageSize, Comparator<T> sort) {
+        Objects.requireNonNull(sort, "Sort comparator cannot be null");
+        if (pageNumber < 0) throw new IllegalArgumentException("Page number must be >= 0");
+        if (pageSize < 1)   throw new IllegalArgumentException("Page size must be >= 1");
+
+        List<T> all = getAll();
+        all.sort(sort);
+
+        int fromIndex   = pageNumber * pageSize;
+        int toIndex     = Math.min(fromIndex + pageSize, all.size());
+
+        List<T> content = fromIndex >= all.size() ? new ArrayList<>() : all.subList(fromIndex, toIndex);
+        return new Page<>(new ArrayList<>(content), pageNumber, pageSize, all.size());
+    }
+
+    public long count() {
+        return getAll().size();
+    }
+
+    public Optional<T> find(Predicate<? super T> predicate) {
         if (predicate == null) {
             throw new IllegalArgumentException("Predicate cannot be null");
         }
-
         collection = getAll();
-
         for (T element : collection) {
             if (predicate.test(element)) {
                 return Optional.of(element);
@@ -100,19 +180,71 @@ public class ObjectRepository<T extends Serializable> implements Serializable {
         return Optional.empty();
     }
 
-    public boolean update(T object) throws IOException {
+    // ── Actualizar ───────────────────────────────────────────────────────────
+
+    public boolean update(T object) {
         Objects.requireNonNull(object, "Object cannot be null");
 
-        int index = collection.indexOf(object);
-        if (index >= 0) {
-            collection.set(index, object);
-            persist();
-            return true;
+        collection = getAll();
+        ID id = idExtractor.apply(object);
+
+        for (int i = 0; i < collection.size(); i++) {
+            if (idExtractor.apply(collection.get(i)).equals(id)) {
+                collection.set(i, object);
+                persist();
+                return true;
+            }
         }
-        return false;
+        throw new EntityNotFoundException(id);
     }
 
-    public FilterBuilder<T> filter(Predicate<? super T> predicate) throws IOException, ClassNotFoundException {
+    // ── Eliminar ─────────────────────────────────────────────────────────────
+
+    public boolean remove(T object) {
+        if (object == null) {
+            throw new IllegalArgumentException("Cannot remove a null object");
+        }
+        collection = getAll();
+        boolean removed = collection.remove(object);
+        if (removed) {
+            persist();
+        }
+        return removed;
+    }
+
+    public boolean deleteById(ID id) {
+        Objects.requireNonNull(id, "ID cannot be null");
+
+        collection = getAll();
+        boolean removed = collection.removeIf(e -> idExtractor.apply(e).equals(id));
+        if (!removed) {
+            throw new EntityNotFoundException(id);
+        }
+        persist();
+                
+        return  removed;
+    }
+
+    public void delete(T entity) {
+        Objects.requireNonNull(entity, "Entity cannot be null");
+        deleteById(idExtractor.apply(entity));
+    }
+
+    public void deleteAll(Iterable<? extends T> entities) {
+        Objects.requireNonNull(entities, "Entities cannot be null");
+        for (T entity : entities) {
+            delete(entity);
+        }
+    }
+
+    public void deleteAll() {
+        collection = new ArrayList<>();
+        persist();
+    }
+
+    // ── Filtros ──────────────────────────────────────────────────────────────
+
+    public FilterBuilder<T> filter(Predicate<? super T> predicate) {
         if (predicate == null) {
             throw new IllegalArgumentException("Filter predicate cannot be null");
         }
@@ -120,20 +252,7 @@ public class ObjectRepository<T extends Serializable> implements Serializable {
         return new FilterBuilder<>(collection, predicate);
     }
 
-    public int indexOf(Predicate<? super T> predicate) throws IOException, ClassNotFoundException {
-        if (predicate == null) {
-            throw new IllegalArgumentException("Predicate cannot be null");
-        }
-
-        collection = getAll();
-
-        for (int i = collection.size() - 1; i >= 0; i--) {
-            if (predicate.test(collection.get(i))) {
-                return i;
-            }
-        }
-        return -1;
-    }
+    // ── FilterBuilder ────────────────────────────────────────────────────────
 
     public static class FilterBuilder<T> {
 
@@ -174,4 +293,36 @@ public class ObjectRepository<T extends Serializable> implements Serializable {
         }
     }
 
+    // ── Page ─────────────────────────────────────────────────────────────────
+
+    public static class Page<T> implements Serializable {
+
+        private final List<T> content;
+        private final int pageNumber;
+        private final int pageSize;
+        private final long totalElements;
+
+        public Page(List<T> content, int pageNumber, int pageSize, long totalElements) {
+            this.content       = content;
+            this.pageNumber    = pageNumber;
+            this.pageSize      = pageSize;
+            this.totalElements = totalElements;
+        }
+
+        public List<T> getContent()    { return content; }
+        public int getPageNumber()     { return pageNumber; }
+        public int getPageSize()       { return pageSize; }
+        public long getTotalElements() { return totalElements; }
+        public int getTotalPages()     { return (int) Math.ceil((double) totalElements / pageSize); }
+        public boolean hasNext()       { return pageNumber + 1 < getTotalPages(); }
+        public boolean hasPrevious()   { return pageNumber > 0; }
+        public boolean isEmpty()       { return content.isEmpty(); }
+
+        @Override
+        public String toString() {
+            return String.format("Page %d of %d (total: %d)", pageNumber + 1, getTotalPages(), totalElements);
+        }
+    }
 }
+
+

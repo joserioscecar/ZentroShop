@@ -94,6 +94,9 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
             save(entity);
             saved.add(entity);
         }
+        
+        
+        
         return saved;
     }
 
@@ -192,20 +195,6 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
             }
         }
         throw new RuntimeException("Entity with ID '" + id + "' already exists");
-    }
-
-    // ── Eliminar ─────────────────────────────────────────────────────────────
-
-    public boolean remove(T object) {
-        if (object == null) {
-            throw new IllegalArgumentException("Cannot remove a null object");
-        }
-        collection = getAll();
-        boolean removed = collection.remove(object);
-        if (removed) {
-            persist();
-        }
-        return removed;
     }
 
     public boolean deleteById(ID id) {

@@ -4,7 +4,6 @@ import co.zentroshop.app.entity.Producto;
 import co.zentroshop.app.enumeration.EstadoProducto;
 import co.zentroshop.app.excepctions.NegocioException;
 import co.zentroshop.app.repository.ProductRepository;
-import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 

@@ -1,22 +1,39 @@
 package co.zentroshop.app.repository;
 
 import java.io.*;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
- * Repositorio genérico que permite persistir, recuperar, buscar, actualizar y
- * eliminar colecciones de objetos en archivos binarios.
+ * Repositorio genérico inspirado en JPA, Hibernate y el patrón de
+ * repositorios de Spring Data, con persistencia mediante serialización
+ * de objetos en archivos binarios.
+ *
+ * <p>Las entidades recuperadas requieren una llamada a {@link #update} para
+ * guardar sus cambios. Cada operación se coordina entre instancias y procesos
+ * que usan esta clase y la misma ruta de archivo, mediante un archivo auxiliar
+ * {@code .lock} que debe conservarse. No hay transacciones entre operaciones
+ * o repositorios. El directorio debe permitir crear el archivo de bloqueo,
+ * incluso para consultar datos, y soportar reemplazos atómicos al escribir.</p>
  *
  * @param <T>  Tipo de objetos que serán almacenados en el repositorio
  * @param <ID> Tipo del identificador único de cada objeto
  *
- * @autor José David Ríos Pacheco
- * @versión 4
+ * @author José David Ríos Pacheco
+ *         <a href="https://www.linkedin.com/in/joseriospacheco/">LinkedIn</a>
+ * @version 2
  */
 public abstract class ObjectRepository<T extends Serializable, ID> {
 
@@ -43,17 +60,22 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
     }
 
 
+    private static final Map<Path, Object> FILE_LOCKS = new ConcurrentHashMap<>();
+
     private final Path filePath;
+    private final Path lockPath;
     private final Function<T, ID> idExtractor;
-    private List<T> collection;
 
     protected ObjectRepository(String pathName, Function<T, ID> idExtractor) {
         if (pathName == null || pathName.trim().isEmpty()) {
             throw new IllegalArgumentException("File path cannot be null or empty");
         }
         Objects.requireNonNull(idExtractor, "ID extractor cannot be null");
-        this.filePath = Paths.get(pathName);
-        this.collection = new ArrayList<>();
+        this.filePath = Paths.get(pathName).toAbsolutePath().normalize();
+        if (filePath.getFileName() == null) {
+            throw new IllegalArgumentException("File path must identify a file");
+        }
+        this.lockPath = filePath.resolveSibling(filePath.getFileName() + ".lock");
         this.idExtractor = idExtractor;
     }
 
@@ -64,23 +86,66 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
 
     // ── Persistencia interna ─────────────────────────────────────────────────
 
-    @SuppressWarnings("unchecked")
     public List<T> getAll() {
-        try {
-            if (!Files.exists(filePath) || Files.size(filePath) == 0) {
-                collection = new ArrayList<>();
-                return new ArrayList<>();
+        return withFileLock(this::readAll);
+    }
+
+    private <R> R withFileLock(Supplier<R> operation) {
+        // El bloqueo JVM evita OverlappingFileLockException entre instancias.
+        synchronized (FILE_LOCKS.computeIfAbsent(filePath, ignored -> new Object())) {
+            try {
+                Files.createDirectories(filePath.getParent());
+                // Se bloquea un archivo estable, no el archivo que será reemplazado.
+                try (FileChannel channel = FileChannel.open(lockPath,
+                        StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                     FileLock ignored = channel.lock()) {
+                    return operation.get();
+                }
+            } catch (IOException e) {
+                throw new StorageException("Failed to access storage: " + filePath, e);
             }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<T> readAll() {
+        InputStream input;
+        try {
+            input = Files.newInputStream(filePath);
+        } catch (NoSuchFileException e) {
+            return new ArrayList<>();
         } catch (IOException e) {
             throw new StorageException("Failed to read from file: " + filePath, e);
         }
-        try (ObjectInputStream ois = new ObjectInputStream(
-                new BufferedInputStream(Files.newInputStream(filePath)))) {
-            collection = (List<T>) ois.readObject();
-            return new ArrayList<>(collection);
-        } catch (EOFException e) {
-            collection = new ArrayList<>();
-            return new ArrayList<>();
+        try (BufferedInputStream buffered = new BufferedInputStream(input)) {
+            buffered.mark(1);
+            if (buffered.read() == -1) {
+                return new ArrayList<>(); // Compatibilidad con archivos de cero bytes.
+            }
+            buffered.reset();
+            try (ObjectInputStream ois = new ObjectInputStream(buffered)) {
+                Object stored = ois.readObject();
+                if (!(stored instanceof List<?> entries)) {
+                    throw new StorageException("Expected a list in file: " + filePath);
+                }
+                List<T> collection = new ArrayList<>(entries.size());
+                Set<ID> ids = new HashSet<>();
+                for (Object entry : entries) {
+                    T entity;
+                    ID id;
+                    try {
+                        entity = (T) entry;
+                        id = extractId(entity);
+                    } catch (RuntimeException e) {
+                        throw new StorageException("Invalid entity in file: " + filePath, e);
+                    }
+                    if (!ids.add(id)) {
+                        throw new StorageException("Duplicate ID in file: " + filePath);
+                    }
+                    collection.add(entity);
+                }
+                return collection;
+            }
         } catch (IOException e) {
             throw new StorageException("Failed to read from file: " + filePath, e);
         } catch (ClassNotFoundException e) {
@@ -88,37 +153,48 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
         }
     }
 
-    private void persist() {
-        Path parentDir = filePath.getParent();
+    private void persist(List<T> collection) {
+        Path temporaryFile = null;
         try {
-            if (parentDir != null && !Files.exists(parentDir)) {
-                Files.createDirectories(parentDir);
-            }
-            try (ObjectOutputStream oos = new ObjectOutputStream(
-                    new BufferedOutputStream(Files.newOutputStream(filePath)))) {
+            temporaryFile = Files.createTempFile(filePath.getParent(), ".repository-", ".tmp");
+            try (FileChannel channel = FileChannel.open(temporaryFile, StandardOpenOption.WRITE);
+                 ObjectOutputStream oos = new ObjectOutputStream(
+                         new BufferedOutputStream(Channels.newOutputStream(channel)))) {
                 oos.writeObject(collection);
                 oos.flush();
+                channel.force(true);
             }
-        } catch (IOException e) {
+            // Si el sistema no admite reemplazo atómico, se conserva el original.
+            Files.move(temporaryFile, filePath,
+                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException | RuntimeException e) {
+            if (temporaryFile != null) {
+                try {
+                    Files.deleteIfExists(temporaryFile);
+                } catch (IOException cleanupFailure) {
+                    e.addSuppressed(cleanupFailure);
+                }
+            }
             throw new StorageException("Failed to write to file: " + filePath, e);
         }
     }
 
     // ── Guardar ──────────────────────────────────────────────────────────────
 
+    /** Inserta una entidad; un ID existente provoca {@link DuplicateEntityException}. */
     public void save(T object) {
         Objects.requireNonNull(object, "Cannot add a null object");
-
-        collection = getAll();
         ID id = extractId(object);
-
-        boolean exists = collection.stream().anyMatch(e -> Objects.equals(extractId(e), id));
-        if (exists) {
-            throw new DuplicateEntityException(id);
-        }
-
-        collection.add(object);
-        persist();
+        withFileLock(() -> {
+            List<T> collection = readAll();
+            boolean exists = collection.stream().anyMatch(e -> Objects.equals(extractId(e), id));
+            if (exists) {
+                throw new DuplicateEntityException(id);
+            }
+            collection.add(object);
+            persist(collection);
+            return null;
+        });
     }
 
     public <S extends T> List<S> saveAll(Iterable<S> entities) {
@@ -141,21 +217,21 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
             }
         }
 
-        collection = getAll();
-        Set<ID> existingIds = new HashSet<>();
-        for (T element : collection) {
-            existingIds.add(extractId(element));
-        }
-        for (ID id : batchIds) {
-            if (existingIds.contains(id)) {
-                throw new DuplicateEntityException(id);
+        return withFileLock(() -> {
+            List<T> collection = readAll();
+            Set<ID> existingIds = new HashSet<>();
+            for (T element : collection) {
+                existingIds.add(extractId(element));
             }
-        }
-
-        collection.addAll(batch);
-        persist();
-
-        return new ArrayList<>(batch);
+            for (ID id : batchIds) {
+                if (existingIds.contains(id)) {
+                    throw new DuplicateEntityException(id);
+                }
+            }
+            collection.addAll(batch);
+            persist(collection);
+            return new ArrayList<>(batch);
+        });
     }
 
     // ── Buscar ───────────────────────────────────────────────────────────────
@@ -163,7 +239,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
     public Optional<T> findById(ID id) {
         Objects.requireNonNull(id, "ID cannot be null");
 
-        collection = getAll();
+        List<T> collection = getAll();
         for (T element : collection) {
             if (Objects.equals(extractId(element), id)) {
                 return Optional.of(element);
@@ -194,30 +270,30 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
     }
 
     public Page<T> findAll(int pageNumber, int pageSize) {
-        if (pageNumber < 0) throw new IllegalArgumentException("Page number must be >= 0");
-        if (pageSize < 1)   throw new IllegalArgumentException("Page size must be >= 1");
-
-        List<T> all   = getAll();
-        int fromIndex = pageNumber * pageSize;
-        int toIndex   = Math.min(fromIndex + pageSize, all.size());
-
-        List<T> content = fromIndex >= all.size() ? new ArrayList<>() : all.subList(fromIndex, toIndex);
-        return new Page<>(new ArrayList<>(content), pageNumber, pageSize, all.size());
+        validatePageRequest(pageNumber, pageSize);
+        return paginate(getAll(), pageNumber, pageSize);
     }
 
     public Page<T> findAll(int pageNumber, int pageSize, Comparator<T> sort) {
         Objects.requireNonNull(sort, "Sort comparator cannot be null");
-        if (pageNumber < 0) throw new IllegalArgumentException("Page number must be >= 0");
-        if (pageSize < 1)   throw new IllegalArgumentException("Page size must be >= 1");
+        validatePageRequest(pageNumber, pageSize);
 
         List<T> all = getAll();
         all.sort(sort);
 
-        int fromIndex   = pageNumber * pageSize;
-        int toIndex     = Math.min(fromIndex + pageSize, all.size());
+        return paginate(all, pageNumber, pageSize);
+    }
 
-        List<T> content = fromIndex >= all.size() ? new ArrayList<>() : all.subList(fromIndex, toIndex);
-        return new Page<>(new ArrayList<>(content), pageNumber, pageSize, all.size());
+    private static void validatePageRequest(int pageNumber, int pageSize) {
+        if (pageNumber < 0) throw new IllegalArgumentException("Page number must be >= 0");
+        if (pageSize < 1)   throw new IllegalArgumentException("Page size must be >= 1");
+    }
+
+    private static <E> Page<E> paginate(List<E> all, int pageNumber, int pageSize) {
+        long offset = (long) pageNumber * pageSize;
+        List<E> content = offset >= all.size() ? List.of()
+                : all.subList((int) offset, (int) Math.min(offset + pageSize, all.size()));
+        return new Page<>(content, pageNumber, pageSize, all.size());
     }
 
     public long count() {
@@ -228,7 +304,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
         if (predicate == null) {
             throw new IllegalArgumentException("Predicate cannot be null");
         }
-        collection = getAll();
+        List<T> collection = getAll();
         for (T element : collection) {
             if (predicate.test(element)) {
                 return Optional.of(element);
@@ -239,37 +315,37 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
 
     // ── Actualizar ───────────────────────────────────────────────────────────
 
+    /** Reemplaza una entidad existente; falla con {@link EntityNotFoundException} si no existe. */
     public void update(T object) {
         Objects.requireNonNull(object, "Object cannot be null");
-
-        collection = getAll();
         ID id = extractId(object);
-
-        for (int i = 0; i < collection.size(); i++) {
-            if (Objects.equals(extractId(collection.get(i)), id)) {
-                collection.set(i, object);
-                persist();
-                return;
+        withFileLock(() -> {
+            List<T> collection = readAll();
+            for (int i = 0; i < collection.size(); i++) {
+                if (Objects.equals(extractId(collection.get(i)), id)) {
+                    collection.set(i, object);
+                    persist(collection);
+                    return null;
+                }
             }
-        }
-        throw new EntityNotFoundException(id);
+            throw new EntityNotFoundException(id);
+        });
     }
 
+    /** Elimina por ID y devuelve {@code false} si la entidad no existe. */
     public boolean deleteById(ID id) {
         Objects.requireNonNull(id, "ID cannot be null");
-
-        collection = getAll();
-        boolean removed = collection.removeIf(e -> Objects.equals(extractId(e), id));
-
-        if (!removed) {
-            return false;
-        }
-
-        persist();
-
-        return true;
+        return withFileLock(() -> {
+            List<T> collection = readAll();
+            boolean removed = collection.removeIf(e -> Objects.equals(extractId(e), id));
+            if (removed) {
+                persist(collection);
+            }
+            return removed;
+        });
     }
 
+    /** Elimina la entidad o lanza {@link EntityNotFoundException} si no existe. */
     public void delete(T entity) {
         Objects.requireNonNull(entity, "Entity cannot be null");
         ID id = extractId(entity);
@@ -278,6 +354,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
         }
     }
 
+    /** Valida que todo el lote exista antes de eliminarlo; falla si falta un ID. */
     public void deleteAll(Iterable<? extends T> entities) {
         Objects.requireNonNull(entities, "Entities cannot be null");
 
@@ -295,34 +372,38 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
             idsToDelete.add(extractId(entity));
         }
 
-        collection = getAll();
-        Set<ID> existingIds = new HashSet<>();
-        for (T element : collection) {
-            existingIds.add(extractId(element));
-        }
-        for (ID id : idsToDelete) {
-            if (!existingIds.contains(id)) {
-                throw new EntityNotFoundException(id);
+        withFileLock(() -> {
+            List<T> collection = readAll();
+            Set<ID> existingIds = new HashSet<>();
+            for (T element : collection) {
+                existingIds.add(extractId(element));
             }
-        }
-
-        collection.removeIf(e -> idsToDelete.contains(extractId(e)));
-        persist();
+            for (ID id : idsToDelete) {
+                if (!existingIds.contains(id)) {
+                    throw new EntityNotFoundException(id);
+                }
+            }
+            collection.removeIf(e -> idsToDelete.contains(extractId(e)));
+            persist(collection);
+            return null;
+        });
     }
 
     public void deleteAll() {
-        collection = new ArrayList<>();
-        persist();
+        withFileLock(() -> {
+            persist(new ArrayList<>());
+            return null;
+        });
     }
 
     // ── Filtros ──────────────────────────────────────────────────────────────
 
+    /** Crea un filtro mutable sobre los datos cargados en este momento. */
     public FilterBuilder<T> filter(Predicate<? super T> predicate) {
         if (predicate == null) {
             throw new IllegalArgumentException("Filter predicate cannot be null");
         }
-        collection = getAll();
-        return new FilterBuilder<>(new ArrayList<>(collection), predicate);
+        return new FilterBuilder<>(getAll(), predicate);
     }
 
     // ── FilterBuilder ────────────────────────────────────────────────────────
@@ -389,25 +470,21 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
         public List<T> limit(int maxSize) {
             if (maxSize < 0) throw new IllegalArgumentException("Max size must be >= 0");
             List<T> result = new ArrayList<>();
+            if (maxSize == 0) return result;
             for (T element : collection) {
                 if (predicate.test(element)) {
+                    result.add(element);
                     if (result.size() >= maxSize) {
                         break;
                     }
-                    result.add(element);
                 }
             }
             return result;
         }
 
         public Page<T> page(int pageNumber, int pageSize) {
-            if (pageNumber < 0) throw new IllegalArgumentException("Page number must be >= 0");
-            if (pageSize < 1)   throw new IllegalArgumentException("Page size must be >= 1");
-            List<T> matches = get();
-            int fromIndex = pageNumber * pageSize;
-            int toIndex   = Math.min(fromIndex + pageSize, matches.size());
-            List<T> content = fromIndex >= matches.size() ? new ArrayList<>() : matches.subList(fromIndex, toIndex);
-            return new Page<>(new ArrayList<>(content), pageNumber, pageSize, matches.size());
+            validatePageRequest(pageNumber, pageSize);
+            return paginate(get(), pageNumber, pageSize);
         }
 
         public List<T> get() {
@@ -421,6 +498,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
         }
 
         public <R> List<R> map(Function<? super T, ? extends R> mapper) {
+            Objects.requireNonNull(mapper, "Mapper cannot be null");
             List<R> result = new ArrayList<>();
             for (T element : collection) {
                 if (predicate.test(element)) {
@@ -456,14 +534,21 @@ public abstract class ObjectRepository<T extends Serializable, ID> {
         public int getPageNumber()     { return pageNumber; }
         public int getPageSize()       { return pageSize; }
         public long getTotalElements() { return totalElements; }
-        public int getTotalPages()     { return (int) Math.ceil((double) totalElements / pageSize); }
-        public boolean hasNext()       { return pageNumber + 1 < getTotalPages(); }
+        /** Devuelve el total de páginas, limitado al máximo representable por int. */
+        public int getTotalPages()     { return (int) Math.min(totalPageCount(), Integer.MAX_VALUE); }
+        public boolean hasNext()       {
+            return pageNumber < Integer.MAX_VALUE && (long) pageNumber + 1 < totalPageCount();
+        }
         public boolean hasPrevious()   { return pageNumber > 0; }
         public boolean isEmpty()       { return content.isEmpty(); }
 
+        private long totalPageCount() {
+            return totalElements / pageSize + (totalElements % pageSize == 0 ? 0 : 1);
+        }
+
         @Override
         public String toString() {
-            return String.format("Page %d of %d (total: %d)", pageNumber + 1, getTotalPages(), totalElements);
+            return String.format("Page %d of %d (total: %d)", (long) pageNumber + 1, totalPageCount(), totalElements);
         }
     }
 }

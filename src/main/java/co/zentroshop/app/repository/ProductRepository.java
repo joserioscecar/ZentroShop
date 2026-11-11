@@ -6,7 +6,7 @@ import co.zentroshop.app.entity.Producto;
 public class ProductRepository extends ObjectRepository<Producto, Integer>{
 
     public ProductRepository() {
-      super("data/sales.bin", Producto::getSku);
+      super("data/product.bin", Producto::getSku);
     }
      
     

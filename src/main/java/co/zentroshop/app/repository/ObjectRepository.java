@@ -18,7 +18,30 @@ import java.util.function.Predicate;
  * @autor José David Ríos Pacheco
  * @versión 4
  */
-public abstract class ObjectRepository<T extends Serializable, ID> implements Serializable {
+public abstract class ObjectRepository<T extends Serializable, ID> {
+
+    public static class DuplicateEntityException extends RuntimeException {
+        public DuplicateEntityException(Object id) { super("Entity with ID '" + id + "' already exists"); }
+        public DuplicateEntityException(Object id, String message) { super("Entity with ID '" + id + "' already exists: " + message); }
+        public DuplicateEntityException(Object id, Throwable cause) { super("Entity with ID '" + id + "' already exists", cause); }
+        public DuplicateEntityException(String message) { super(message); }
+        public DuplicateEntityException(String message, Throwable cause) { super(message, cause); }
+    }
+
+    public static class EntityNotFoundException extends RuntimeException {
+        public EntityNotFoundException(Object id) { super("Entity with ID '" + id + "' not found"); }
+        public EntityNotFoundException(Object id, String message) { super("Entity with ID '" + id + "' not found: " + message); }
+        public EntityNotFoundException(Object id, Throwable cause) { super("Entity with ID '" + id + "' not found", cause); }
+        public EntityNotFoundException(String message) { super(message); }
+        public EntityNotFoundException(String message, Throwable cause) { super(message, cause); }
+    }
+
+    public static class StorageException extends RuntimeException {
+        public StorageException(String message) { super(message); }
+        public StorageException(String message, Throwable cause) { super(message, cause); }
+        public StorageException(Throwable cause) { super(cause); }
+    }
+
 
     private final Path filePath;
     private final Function<T, ID> idExtractor;
@@ -34,21 +57,34 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
         this.idExtractor = idExtractor;
     }
 
+    private ID extractId(T object) {
+        ID id = idExtractor.apply(Objects.requireNonNull(object, "Object cannot be null"));
+        return Objects.requireNonNull(id, "ID cannot be null");
+    }
+
     // ── Persistencia interna ─────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
     public List<T> getAll() {
-        if (!Files.exists(filePath)) {
-            return new ArrayList<>();
+        try {
+            if (!Files.exists(filePath) || Files.size(filePath) == 0) {
+                collection = new ArrayList<>();
+                return new ArrayList<>();
+            }
+        } catch (IOException e) {
+            throw new StorageException("Failed to read from file: " + filePath, e);
         }
         try (ObjectInputStream ois = new ObjectInputStream(
                 new BufferedInputStream(Files.newInputStream(filePath)))) {
             collection = (List<T>) ois.readObject();
             return new ArrayList<>(collection);
+        } catch (EOFException e) {
+            collection = new ArrayList<>();
+            return new ArrayList<>();
         } catch (IOException e) {
-            throw new RuntimeException("Failed to read from file: " + filePath, e);
+            throw new StorageException("Failed to read from file: " + filePath, e);
         } catch (ClassNotFoundException e) {
-            throw new RuntimeException("Incompatible data format in file: " + filePath, e);
+            throw new StorageException("Incompatible data format in file: " + filePath, e);
         }
     }
 
@@ -64,40 +100,62 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
                 oos.flush();
             }
         } catch (IOException e) {
-            throw new RuntimeException("Failed to write to file: " + filePath, e);
+            throw new StorageException("Failed to write to file: " + filePath, e);
         }
     }
 
     // ── Guardar ──────────────────────────────────────────────────────────────
 
-    public boolean save(T object) {
+    public void save(T object) {
         Objects.requireNonNull(object, "Cannot add a null object");
 
         collection = getAll();
-        ID id = idExtractor.apply(object);
+        ID id = extractId(object);
 
-        boolean exists = collection.stream().anyMatch(e -> idExtractor.apply(e).equals(id));
+        boolean exists = collection.stream().anyMatch(e -> Objects.equals(extractId(e), id));
         if (exists) {
-            throw new RuntimeException("Entity with ID '" + id + "' already exists");
+            throw new DuplicateEntityException(id);
         }
 
-        boolean saved = collection.add(object);
+        collection.add(object);
         persist();
-        return saved;
     }
 
     public <S extends T> List<S> saveAll(Iterable<S> entities) {
         Objects.requireNonNull(entities, "Entities cannot be null");
 
-        List<S> saved = new ArrayList<>();
+        List<S> batch = new ArrayList<>();
         for (S entity : entities) {
-            save(entity);
-            saved.add(entity);
+            Objects.requireNonNull(entity, "Entities cannot contain null");
+            batch.add(entity);
         }
-        
-        
-        
-        return saved;
+        if (batch.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Set<ID> batchIds = new HashSet<>();
+        for (S entity : batch) {
+            ID id = extractId(entity);
+            if (!batchIds.add(id)) {
+                throw new DuplicateEntityException(id);
+            }
+        }
+
+        collection = getAll();
+        Set<ID> existingIds = new HashSet<>();
+        for (T element : collection) {
+            existingIds.add(extractId(element));
+        }
+        for (ID id : batchIds) {
+            if (existingIds.contains(id)) {
+                throw new DuplicateEntityException(id);
+            }
+        }
+
+        collection.addAll(batch);
+        persist();
+
+        return new ArrayList<>(batch);
     }
 
     // ── Buscar ───────────────────────────────────────────────────────────────
@@ -107,7 +165,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
 
         collection = getAll();
         for (T element : collection) {
-            if (idExtractor.apply(element).equals(id)) {
+            if (Objects.equals(extractId(element), id)) {
                 return Optional.of(element);
             }
         }
@@ -115,7 +173,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
     }
 
     public T getById(ID id) {
-        return findById(id).orElseThrow(() -> new RuntimeException("Entity with ID '" + id + "' already exists"));
+        return findById(id).orElseThrow(() -> new EntityNotFoundException(id));
     }
 
     public boolean existsById(ID id) {
@@ -181,43 +239,75 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
 
     // ── Actualizar ───────────────────────────────────────────────────────────
 
-    public boolean update(T object) {
+    public void update(T object) {
         Objects.requireNonNull(object, "Object cannot be null");
 
         collection = getAll();
-        ID id = idExtractor.apply(object);
+        ID id = extractId(object);
 
         for (int i = 0; i < collection.size(); i++) {
-            if (idExtractor.apply(collection.get(i)).equals(id)) {
+            if (Objects.equals(extractId(collection.get(i)), id)) {
                 collection.set(i, object);
                 persist();
-                return true;
+                return;
             }
         }
-        throw new RuntimeException("Entity with ID '" + id + "' already exists");
+        throw new EntityNotFoundException(id);
     }
 
     public boolean deleteById(ID id) {
         Objects.requireNonNull(id, "ID cannot be null");
 
         collection = getAll();
-        boolean removed = collection.removeIf(e -> idExtractor.apply(e).equals(id));
+        boolean removed = collection.removeIf(e -> Objects.equals(extractId(e), id));
+
+        if (!removed) {
+            return false;
+        }
 
         persist();
-                
-        return  removed;
+
+        return true;
     }
 
     public void delete(T entity) {
         Objects.requireNonNull(entity, "Entity cannot be null");
-        deleteById(idExtractor.apply(entity));
+        ID id = extractId(entity);
+        if (!deleteById(id)) {
+            throw new EntityNotFoundException(id);
+        }
     }
 
     public void deleteAll(Iterable<? extends T> entities) {
         Objects.requireNonNull(entities, "Entities cannot be null");
+
+        List<T> batch = new ArrayList<>();
         for (T entity : entities) {
-            delete(entity);
+            Objects.requireNonNull(entity, "Entities cannot contain null");
+            batch.add(entity);
         }
+        if (batch.isEmpty()) {
+            return;
+        }
+
+        Set<ID> idsToDelete = new HashSet<>();
+        for (T entity : batch) {
+            idsToDelete.add(extractId(entity));
+        }
+
+        collection = getAll();
+        Set<ID> existingIds = new HashSet<>();
+        for (T element : collection) {
+            existingIds.add(extractId(element));
+        }
+        for (ID id : idsToDelete) {
+            if (!existingIds.contains(id)) {
+                throw new EntityNotFoundException(id);
+            }
+        }
+
+        collection.removeIf(e -> idsToDelete.contains(extractId(e)));
+        persist();
     }
 
     public void deleteAll() {
@@ -232,7 +322,7 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
             throw new IllegalArgumentException("Filter predicate cannot be null");
         }
         collection = getAll();
-        return new FilterBuilder<>(collection, predicate);
+        return new FilterBuilder<>(new ArrayList<>(collection), predicate);
     }
 
     // ── FilterBuilder ────────────────────────────────────────────────────────
@@ -243,8 +333,8 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
         private Predicate<T> predicate;
 
         public FilterBuilder(List<T> collection, Predicate<? super T> predicate) {
-            this.collection = collection;
-            this.predicate = predicate::test;
+            this.collection = new ArrayList<>(Objects.requireNonNull(collection, "Collection cannot be null"));
+            this.predicate = Objects.requireNonNull(predicate, "Filter predicate cannot be null")::test;
         }
 
         public FilterBuilder<T> and(Predicate<? super T> otro) {
@@ -253,6 +343,71 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
             }
             this.predicate = this.predicate.and(otro::test);
             return this;
+        }
+
+        public FilterBuilder<T> or(Predicate<? super T> otro) {
+            if (otro == null) {
+                throw new IllegalArgumentException("Filter predicate cannot be null");
+            }
+            this.predicate = this.predicate.or(otro::test);
+            return this;
+        }
+
+        public FilterBuilder<T> not() {
+            this.predicate = this.predicate.negate();
+            return this;
+        }
+
+        public Optional<T> first() {
+            for (T element : collection) {
+                if (predicate.test(element)) {
+                    return Optional.of(element);
+                }
+            }
+            return Optional.empty();
+        }
+
+        public long count() {
+            long matches = 0;
+            for (T element : collection) {
+                if (predicate.test(element)) {
+                    matches++;
+                }
+            }
+            return matches;
+        }
+
+        public boolean exists() {
+            for (T element : collection) {
+                if (predicate.test(element)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public List<T> limit(int maxSize) {
+            if (maxSize < 0) throw new IllegalArgumentException("Max size must be >= 0");
+            List<T> result = new ArrayList<>();
+            for (T element : collection) {
+                if (predicate.test(element)) {
+                    if (result.size() >= maxSize) {
+                        break;
+                    }
+                    result.add(element);
+                }
+            }
+            return result;
+        }
+
+        public Page<T> page(int pageNumber, int pageSize) {
+            if (pageNumber < 0) throw new IllegalArgumentException("Page number must be >= 0");
+            if (pageSize < 1)   throw new IllegalArgumentException("Page size must be >= 1");
+            List<T> matches = get();
+            int fromIndex = pageNumber * pageSize;
+            int toIndex   = Math.min(fromIndex + pageSize, matches.size());
+            List<T> content = fromIndex >= matches.size() ? new ArrayList<>() : matches.subList(fromIndex, toIndex);
+            return new Page<>(new ArrayList<>(content), pageNumber, pageSize, matches.size());
         }
 
         public List<T> get() {
@@ -280,13 +435,18 @@ public abstract class ObjectRepository<T extends Serializable, ID> implements Se
 
     public static class Page<T> implements Serializable {
 
+        private static final long serialVersionUID = 1L;
+
         private final List<T> content;
         private final int pageNumber;
         private final int pageSize;
         private final long totalElements;
 
         public Page(List<T> content, int pageNumber, int pageSize, long totalElements) {
-            this.content       = content;
+            if (pageNumber < 0) throw new IllegalArgumentException("Page number must be >= 0");
+            if (pageSize < 1)   throw new IllegalArgumentException("Page size must be >= 1");
+            if (totalElements < 0) throw new IllegalArgumentException("Total elements must be >= 0");
+            this.content       = List.copyOf(Objects.requireNonNull(content, "Content cannot be null"));
             this.pageNumber    = pageNumber;
             this.pageSize      = pageSize;
             this.totalElements = totalElements;

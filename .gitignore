@@ -1,1 +1,56 @@
-/data
+# ── Datos de la app (binarios en runtime) ──
+/data/
+*.bin
+
+# ── Maven ──
+/target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# ── Compilados Java ──
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+
+# ── NetBeans ──
+nbactions.xml
+nb-configuration.xml
+nbproject/private/
+nbproject/Makefile-*.mk
+nbproject/Package-*.bash
+build/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+# ── IntelliJ / Eclipse / VS Code ──
+.idea/
+*.iws
+*.iml
+*.ipr
+.classpath
+.project
+.settings/
+.factorypath
+.vscode/
+*.code-workspace
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Logs / tmp ──
+*.log
+sources.txt

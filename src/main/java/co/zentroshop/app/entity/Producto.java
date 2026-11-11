@@ -7,6 +7,8 @@ import java.util.Random;
 
 public class Producto  implements Serializable{
 
+    private static final long serialVersionUID = 1L;
+
     private final int sku;
     private final String nombre;
     private double precio;

@@ -30,7 +30,9 @@ public class ProductoService {
             return false;
         }
 
-        return productoRepository.save(producto);
+        productoRepository.save(producto);
+        return true;
+
 
 
     }

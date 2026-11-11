@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 
 public class Venta implements Serializable {
 
+    private static final long serialVersionUID = 1L;
+
     private final int numero;
     private final Producto producto;
     private final int cantidad;

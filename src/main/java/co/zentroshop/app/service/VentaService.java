@@ -44,7 +44,8 @@ public class VentaService {
             int numeroUltimaVenta = getNumeroUltimaVenta() + 1;
             Venta venta = new Venta(numeroUltimaVenta, productoEncontrado, cantidad);
             
-            return ventaRepository.save(venta);
+            ventaRepository.save(venta);
+            return true;
         }
 
         return false;
